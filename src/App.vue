@@ -6,6 +6,10 @@
         <input type="radio" v-model="mouseState" :value="state" :id="`mst-${i}`"/>
         <label :for="`mst-${i}`">{{state}}</label>
       </span>
+      <span class="mouse-state">
+        <button @click="autoRun" v-if="autoRunning === false">auto run</button>
+        <button @click="stopAutoRun" v-if="autoRunning">stop run</button>
+      </span>
     </div>
     <div class="canvas-container">
       <canvas
@@ -60,7 +64,8 @@ function data() {
     jumpDistance: 0,
     duration: 0,
     allMouseStates: ['click-mode', 'tap-tap-helper'],
-    mouseState: 'click-mode'
+    mouseState: 'click-mode',
+    autoRunning: false
   }
 }
 
@@ -108,6 +113,23 @@ export default {
     this.loopIsRunning = false
   },
   methods: {
+    highlightPos({x, y}) {
+      let svg = this.$refs.actionlayer
+      let pointer = d3.select(svg).selectAll('circle.pointer').data([{x, y}])
+      pointer.exit().remove()
+      pointer.enter().append('circle')
+        .attr('class', 'pointer')
+        .attr('fill', 'yellow')
+        .attr('stroke', 'gray')
+        .merge(pointer)
+          .attr('cx', d => d.x)
+          .attr('cy', d => d.y)
+          .attr('r', 10)
+          .transition()
+          .delay(100)
+          .duration(100)
+          .attr('r', 0)
+    },
     handleTapTarget(ev) {
       let { offsetX, offsetY } = ev
       this.click.x = offsetX
@@ -125,22 +147,6 @@ export default {
         screenY: offsetY * this.viewToScreenCoefficient
       }
 
-      let svg = this.$refs.actionlayer
-      let pointer = d3.select(svg).selectAll('circle.pointer').data([this.click])
-      pointer.exit().remove()
-      pointer.enter().append('circle')
-        .attr('class', 'pointer')
-        .attr('fill', 'yellow')
-        .attr('stroke', 'gray')
-        .merge(pointer)
-          .attr('cx', d => d.x)
-          .attr('cy', d => d.y)
-          .attr('r', 10)
-          .transition()
-          .delay(100)
-          .duration(100)
-          .attr('r', 0)
-
       if (this.mouseState === 'tap-tap-helper') {
         return this.handleTapTapHelper(ev, info)
       } else {
@@ -153,9 +159,15 @@ export default {
       this.chess.x = x
       this.chess.y = y
 
-      let dx = screenX - x
-      let dy = screenY - y
+      let target = utils.detectTargetPos(this.$refs.c, null, this.chess)
+      console.log(target)
+      this.highlightPos({
+        x: target.x * this.screenToViewCoefficient,
+        y: target.y * this.screenToViewCoefficient
+      })
 
+      let dx = target.x - x
+      let dy = target.y - y
       let dist = Math.sqrt(dx*dx + dy*dy)
       this.jumpDistance = dist
 
@@ -166,7 +178,37 @@ export default {
       utils.tapAndHold(this, 269, 640, this.duration)
     },
     handleClick(ev, { viewX, viewY, screenX, screenY, deviceX, deviceY }) {
+      this.highlightPos(this.click)
       utils.tap(this, deviceX, deviceY)
+    },
+
+    stopAutoRun() {
+      this.autoRunning = false
+    },
+
+    async autoRun() {
+      this.autoRunning = true
+      do {
+        let chess = utils.detectChessPiecePos(this.$refs.c)
+        if (chess.x <= 2 || chess.y <= 2) {
+          console.log('chess pos invalid, stop auto run')
+          break
+        }
+        let target = utils.detectTargetPos(this.$refs.c, null, chess)
+        let dx = target.x - chess.x
+        let dy = target.y - chess.y
+        let dist = Math.sqrt(dx*dx + dy*dy)
+        // iPhone 7 的参数
+        let alpha = 0.8 / 415.52
+        this.duration = alpha * dist
+        utils.tapAndHold(this, 269, 640, this.duration)
+        this.highlightPos({
+          x: target.x * this.screenToViewCoefficient,
+          y: target.y * this.screenToViewCoefficient
+        })
+        await utils.sleep(4500)
+      } while (this.autoRunning)
+      console.log('auto running stoped')
     }
   }
 }
